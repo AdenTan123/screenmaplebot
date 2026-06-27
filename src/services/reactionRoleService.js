@@ -229,7 +229,6 @@ export async function deleteReactionRoleMessage(client, guildId, messageId) {
         const data = await getReactionRoleMessage(client, guildId, messageId);
         
         if (!data) {
-            
             logger.debug(`Reaction role message ${messageId} does not exist in guild ${guildId}, nothing to delete`);
             return true;
         }
@@ -293,29 +292,17 @@ export async function getAllReactionRoleMessages(client, guildId) {
         validateGuildId(guildId);
         
         const prefix = `reaction_roles:${guildId}:`;
-        
         let keys;
+        
         try {
             keys = await client.db.list(prefix);
-            
-            if (keys && typeof keys === 'object') {
-                if (Array.isArray(keys)) {
-                    
-                } else if (keys.value && Array.isArray(keys.value)) {
+            if (keys && typeof keys === 'object' && !Array.isArray(keys)) {
+                if (keys.value && Array.isArray(keys.value)) {
                     keys = keys.value;
                 } else {
                     const allKeys = await client.db.list();
-                    
-                    if (Array.isArray(allKeys)) {
-                        keys = allKeys.filter(key => key.startsWith(prefix));
-                    } else if (allKeys.value && Array.isArray(allKeys.value)) {
-                        keys = allKeys.value.filter(key => key.startsWith(prefix));
-                    } else {
-                        return [];
-                    }
+                    keys = Array.isArray(allKeys) ? allKeys.filter(k => k.startsWith(prefix)) : (allKeys?.value?.filter(k => k.startsWith(prefix)) || []);
                 }
-            } else {
-                return [];
             }
         } catch (listError) {
             logger.error(`Error listing reaction role keys for guild ${guildId}:`, listError);
@@ -336,17 +323,8 @@ export async function getAllReactionRoleMessages(client, guildId) {
         for (const key of keys) {
             try {
                 const data = await client.db.get(key);
-                
                 if (data) {
-                    let actualData;
-                    if (data && data.ok && data.value) {
-                        actualData = data.value;
-                    } else if (data && data.value) {
-                        actualData = data.value;
-                    } else {
-                        actualData = data;
-                    }
-                    
+                    const actualData = (data.ok && data.value) ? data.value : (data.value ?? data);
                     if (actualData && actualData.messageId && actualData.channelId) {
                         messages.push(actualData);
                     } else if (actualData) {
@@ -355,7 +333,6 @@ export async function getAllReactionRoleMessages(client, guildId) {
                 }
             } catch (dataError) {
                 logger.warn(`Error getting data for reaction role key ${key}:`, dataError);
-                
             }
         }
 
