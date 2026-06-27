@@ -1,5 +1,5 @@
 import { logger } from '../utils/logger.js';
-import { getLevelingConfig, getUserLevelData, saveLevelingConfig } from './leveling.js';
+// import { getLevelingConfig, getUserLevelData, saveLevelingConfig } from './leveling.js';
 
 async function listLevelUserIds(client, guildId) {
     if (!client.db?.list) return [];
