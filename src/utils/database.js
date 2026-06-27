@@ -46,7 +46,6 @@ export async function getFromDb(key, defaultValue = null) {
 export async function setInDb(key, value) {
     try {
         const col = getCollection("kv_store");
-        // 💡 FIXED: Changed 'upsers: true' to 'upsert: true'
         await col.updateOne({ _id: key }, { $set: { value, updatedAt: new Date() } }, { upsert: true });
         return true;
     } catch (error) {
@@ -66,16 +65,29 @@ export async function deleteFromDb(key) {
     }
 }
 
+// 💡 ADDED: Prefix-based key scanner for MongoDB mapping
+export async function listFromDb(prefix = '') {
+    try {
+        const col = getCollection("kv_store");
+        const escapedPrefix = prefix.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+        const docs = await col.find({ _id: { $regex: `^${escapedPrefix}` } }).toArray();
+        return docs.map(doc => doc._id);
+    } catch (error) {
+        logger.error(`Error listing keys with prefix ${prefix} from MongoDB:`, error);
+        return [];
+    }
+}
+
 // Emulating backward compatibility exports for generic wrappers if required elsewhere
 export const db = {
     get initialized() { return !!mongoDb; },
     isAvailable: () => !!mongoDb,
     initialize: initializeDatabase,
     
-    // 💡 FIXED: Mapped missing operations to resolve service failures
     get: getFromDb,
     set: setInDb,
-    delete: deleteFromDb
+    delete: deleteFromDb,
+    list: listFromDb // 💡 FIXED: Mapped the missing collection scanner function
 };
 
 export {
@@ -424,7 +436,6 @@ function getApplicationRetentionDays(settings = {}) {
     };
 }
 
-// Helper block for application checking logic
 function isApplicationExpired(application, retentionDays, now = Date.now()) {
     if (!application) return false;
     const createdAt = Number(application.createdAt) || now;
