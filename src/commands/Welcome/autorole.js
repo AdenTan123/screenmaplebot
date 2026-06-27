@@ -1,5 +1,5 @@
 import { getColor } from '../../config/bot.js';
-import { SlashCommandBuilder, PermissionFlagsBits, ChannelType, EmbedBuilder, MessageFlags } from 'discord.js';
+import { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder, MessageFlags } from 'discord.js';
 import { getWelcomeConfig, updateWelcomeConfig } from '../../utils/database.js';
 import { logger } from '../../utils/logger.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
@@ -37,7 +37,20 @@ export default {
         .addSubcommand(subcommand =>
             subcommand
                 .setName('list')
-                .setDescription('List all auto-assigned roles')),
+                .setDescription('List all auto-assigned roles'))
+
+        .addSubcommand(subcommand =>
+            subcommand
+                .setName('hasrole')
+                .setDescription('Auto-assign a role if the user already possesses a specific base role')
+                .addRoleOption(option =>
+                    option.setName('role')
+                        .setDescription('The role the user must have')
+                        .setRequired(true))
+                .addRoleOption(option =>
+                    option.setName('addrole')
+                        .setDescription('The role to automatically assign')
+                        .setRequired(true))),
 
     async execute(interaction) {
         const deferSuccess = await InteractionHelper.safeDefer(interaction);
@@ -54,7 +67,7 @@ export default {
             return await replyUserError(interaction, { type: ErrorTypes.PERMISSION, message: 'You need the **Manage Server** permission to use `/autorole`.' });
         }
 
-    const { options, guild, client } = interaction;
+        const { options, guild, client } = interaction;
         const subcommand = options.getSubcommand();
 
         if (subcommand === 'add') {
@@ -152,9 +165,14 @@ export default {
                     logger.info(`[Autorole] Trimmed auto-role list to one role in ${interaction.guild.name}`);
                 }
 
+                // Append any conditional hasRole config visualization to list if present
+                const dynamicRoleInfo = config.conditionalRoles 
+                    ? `\n\n**Conditional Auto-Roles:**\nIf user has <@&${config.conditionalRoles.requiredId}>, assign <@&${config.conditionalRoles.assignId}>` 
+                    : '';
+
                 if (singleRoleIds.length === 0) {
                     return InteractionHelper.safeEditReply(interaction, {
-                        embeds: [createAutoroleInfoEmbed(`ℹ️ No role is set to be auto-assigned.${conflictSummary ?`\n\n⚠️ Setup blockers:\n${conflictSummary}`: ''}`)],
+                        embeds: [createAutoroleInfoEmbed(`ℹ️ No role is set to be auto-assigned.${conflictSummary ?`\n\n⚠️ Setup blockers:\n${conflictSummary}`: ''}${dynamicRoleInfo}`)],
                         flags: MessageFlags.Ephemeral
                     });
                 }
@@ -182,7 +200,7 @@ export default {
 
                 if (validRoles.length === 0) {
                     return InteractionHelper.safeEditReply(interaction, {
-                        embeds: [createAutoroleInfoEmbed(`ℹ️ No valid auto-role found. Any invalid role has been removed.${conflictSummary ?`\n\n⚠️ Setup blockers:\n${conflictSummary}`: ''}`)],
+                        embeds: [createAutoroleInfoEmbed(`ℹ️ No valid auto-role found. Any invalid role has been removed.${conflictSummary ?`\n\n⚠️ Setup blockers:\n${conflictSummary}`: ''}${dynamicRoleInfo}`)],
                         flags: MessageFlags.Ephemeral
                     });
                 }
@@ -190,8 +208,8 @@ export default {
                 const embed = new EmbedBuilder()
                     .setColor(getColor('info'))
                     .setTitle('Auto-Assigned Role')
-                    .setDescription(`${validRoles[0]}${conflictSummary ?`\n\n⚠️ Setup blockers:\n${conflictSummary}`: ''}`)
-                    .setFooter({ text: 'Only one auto-role can be configured.' });
+                    .setDescription(`${validRoles[0]}${conflictSummary ?`\n\n⚠️ Setup blockers:\n${conflictSummary}`: ''}${dynamicRoleInfo}`)
+                    .setFooter({ text: 'Only one global auto-role can be configured.' });
 
                 await InteractionHelper.safeEditReply(interaction, {
                     embeds: [embed],
@@ -201,6 +219,35 @@ export default {
             } catch (error) {
                 logger.error(`[Autorole] Failed to list roles for guild ${guild.id}:`, error);
                 await replyUserError(interaction, { type: ErrorTypes.UNKNOWN, message: 'An error occurred while listing auto-assigned roles. Please try again.' });
+            }
+        }
+        
+        // 💡 ADDED: hasrole Subcommand Implementation Execution Block
+        else if (subcommand === 'hasrole') {
+            const hasRoleOpt = options.getRole('role');
+            const addRoleOpt = options.getRole('addrole');
+
+            if (addRoleOpt.position >= guild.members.me.roles.highest.position) {
+                logger.warn(`[Autorole] User ${interaction.user.tag} tried to assign hasrole addrole target ${addRoleOpt.name} higher than bot hierarchy`);
+                return await replyUserError(interaction, { type: ErrorTypes.UNKNOWN, message: 'I cannot assign a target role placed higher than my own highest role.' });
+            }
+
+            try {
+                await updateWelcomeConfig(client, guild.id, {
+                    conditionalRoles: {
+                        requiredId: hasRoleOpt.id,
+                        assignId: addRoleOpt.id
+                    }
+                });
+
+                logger.info(`[Autorole] Configured hasrole automation in ${guild.name}: if has ${hasRoleOpt.name} add ${addRoleOpt.name}`);
+                await InteractionHelper.safeEditReply(interaction, {
+                    embeds: [createAutoroleInfoEmbed(`✅ Conditional auto-role set!\nMembers possessing ${hasRoleOpt} will receive ${addRoleOpt}.`)],
+                    flags: MessageFlags.Ephemeral
+                });
+            } catch (error) {
+                logger.error(`[Autorole] Failed setting conditional hasrole configuration for guild ${guild.id}:`, error);
+                await replyUserError(interaction, { type: ErrorTypes.UNKNOWN, message: 'An error occurred while linking the conditional auto-role configuration.' });
             }
         }
     },
