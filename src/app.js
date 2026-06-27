@@ -5,7 +5,7 @@ import express from 'express';
 import cron from 'node-cron';
 
 import config from './config/application.js';
-import { initializeDatabase } from './utils/database.js';
+import { initializeDatabase, db } from './utils/database.js'; // 💎 Imported db directly here
 import { getGuildConfig } from './services/guildConfig.js';
 import { getServerCounters, saveServerCounters, updateCounter } from './services/serverstatsService.js';
 import { logger, startupLog, shutdownLog } from './utils/logger.js';
@@ -19,17 +19,13 @@ class TitanBot extends Client {
   constructor() {
     super({
       intents: [
-        
         GatewayIntentBits.Guilds,                        
         GatewayIntentBits.GuildMembers,                 
-
         GatewayIntentBits.GuildMessages,                
         GatewayIntentBits.GuildMessageReactions,        
         GatewayIntentBits.MessageContent,               
         GatewayIntentBits.DirectMessages,
-
         GatewayIntentBits.GuildVoiceStates,             
-
         GatewayIntentBits.GuildBans,                    
       ],
     });
@@ -51,23 +47,20 @@ class TitanBot extends Client {
       await new Promise(resolve => setTimeout(resolve, 1000));
       
       startupLog('Initializing database...');
-      const dbInstance = await initializeDatabase();
-      this.db = dbInstance.db;
+      const success = await initializeDatabase();
+      this.db = db; // Assign our imported database helper
 
-      // Check database status and report
-      const dbStatus = this.db.getStatus();
-      if (dbStatus.isDegraded) {
+      if (!success) {
         logger.warn('');
         logger.warn('╔═══════════════════════════════════════════════════════╗');
-        logger.warn('║ ⚠️  DATABASE RUNNING IN DEGRADED MODE                 ║');
+        logger.warn('║ ⚠️  DATABASE CONNECTION FAILED                        ║');
         logger.warn('║                                                       ║');
-        logger.warn('║ Connection: In-Memory Storage (PostgreSQL unavailable)║');
-        logger.warn('║ Data Persistence: DISABLED - data lost on restart    ║');
-        logger.warn('║ Action Required: Fix PostgreSQL and restart bot      ║');
+        logger.warn('║ Connection: Failed to reach MongoDB Atlas Cluster     ║');
+        logger.warn('║ Data Persistence: INOPERABLE                         ║');
         logger.warn('╚═══════════════════════════════════════════════════════╝');
         logger.warn('');
       } else {
-        startupLog(`✅ Database Status: ${dbStatus.connectionType} (fully operational)`);
+        startupLog(`✅ Database Status: MongoDB Connected (fully operational)`);
       }
       
       startupLog('Starting web server...');
@@ -94,9 +87,9 @@ class TitanBot extends Client {
       }
       startupLog('Slash commands registration complete');
       
-      const databaseMode = dbStatus.isDegraded
-        ? 'Optional in-memory mode (data resets after restart)'
-        : 'Connected (persistent data enabled)';
+      const databaseMode = !success
+        ? 'Database Connection Offline'
+        : 'Connected (MongoDB persistent data enabled)';
       const handlerSummary = `${this.buttons.size} buttons, ${this.selectMenus.size} menus, ${this.modals.size} modals`;
       startupLog(
         `ONLINE ✅ | ${this.commands.size} commands loaded | ${handlerSummary} | Database: ${databaseMode}`
@@ -157,31 +150,31 @@ class TitanBot extends Client {
     });
 
     app.get('/health', (req, res) => {
-      const dbStatus = this.db?.getStatus?.() || { isDegraded: 'unknown' };
+      const isConnected = !!this.db?.initialized;
       const status = {
         status: 'healthy',
         timestamp: new Date().toISOString(),
         uptime: process.uptime(),
         database: {
-          connected: dbStatus.connectionType !== 'none',
-          degraded: dbStatus.isDegraded,
-          type: dbStatus.connectionType
+          connected: isConnected,
+          degraded: !isConnected,
+          type: isConnected ? 'mongodb' : 'none'
         }
       };
       res.status(200).json(status);
     });
 
     app.get('/ready', (req, res) => {
-      const dbStatus = this.db?.getStatus?.() || { isDegraded: true, connectionType: 'none' };
-      const isReady = this.isReady() && !dbStatus.isDegraded;
+      const isConnected = !!this.db?.initialized;
+      const isReady = this.isReady() && isConnected;
 
       const metrics = {
         guildCount: this.guilds?.cache?.size ?? 0,
         commandCount: this.commands?.size ?? 0,
         database: {
-          mode: dbStatus.connectionType,
-          degraded: dbStatus.isDegraded,
-          degradedReason: dbStatus.degradedReason ?? null,
+          mode: isConnected ? 'mongodb' : 'none',
+          degraded: !isConnected,
+          degradedReason: isConnected ? null : 'MongoDB disconnect',
         },
         schemaVersion: EXPECTED_SCHEMA_VERSION,
         schemaLabel: EXPECTED_SCHEMA_LABEL,
@@ -197,7 +190,7 @@ class TitanBot extends Client {
 
       res.status(503).json({
         ready: false,
-        reason: !this.isReady() ? 'Bot not Ready' : 'Database degraded',
+        reason: !this.isReady() ? 'Bot not Ready' : 'Database disconnected',
         metrics,
       });
     });
@@ -254,7 +247,7 @@ class TitanBot extends Client {
   }
 
   async updateAllCounters() {
-    if (!this.db) {
+    if (!this.db || !this.db.initialized) {
       logger.warn('Database not available for counter updates');
       return;
     }
@@ -278,8 +271,6 @@ class TitanBot extends Client {
           }
         }
         
-        // Save cleaned counters if any were orphaned
-        // Save cleaned counters if any were orphaned
         if (orphanedCounters.length > 0) {
           await saveServerCounters(this, guildId, validCounters);
           logger.info(`Cleaned up ${orphanedCounters.length} orphaned counter(s) from guild ${guildId} during scheduled update`);
@@ -338,22 +329,17 @@ class TitanBot extends Client {
     logger.info(`${'='.repeat(60)}`);
 
     try {
-      
       logger.info('Stopping cron jobs...');
       cron.getTasks().forEach(task => task.stop());
       logger.info('✅ Cron jobs stopped');
 
-      // Close database connection
-      // Close database connection
-      if (this.db && this.db.db) {
-        logger.info('Closing database connection...');
+      if (this.db && this.db.client) {
+        logger.info('Closing MongoDB connection...');
         try {
-          if (this.db.db.pool) {
-            await this.db.db.pool.end();
-            logger.info('✅ Database connection closed');
-          }
+          await this.db.client.close();
+          logger.info('✅ Database connection closed');
         } catch (error) {
-          logger.warn('Error closing database pool:', error.message);
+          logger.warn('Error closing MongoDB connection:', error.message);
         }
       }
 
@@ -363,13 +349,12 @@ class TitanBot extends Client {
           this.destroy();
           logger.info('✅ Discord client destroyed');
         } catch (error) {
-
           logger.warn('Discord client destroy warning (non-critical):', error.message);
         }
       }
 
       logger.info('✅ Graceful shutdown complete');
-  shutdownLog('Bot stopped successfully.');
+      shutdownLog('Bot stopped successfully.');
       process.exit(0);
     } catch (error) {
       logger.error('Error during graceful shutdown:', error);
