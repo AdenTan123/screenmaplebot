@@ -128,6 +128,9 @@ async function handleCountingGame(message, client) {
     const invalidAttempt = !validCount || message.author.id === config.lastUserId;
 
     if (invalidAttempt) {
+      // 💡 Added: React with ❌ on incorrect counts
+      await message.react('❌').catch(() => null);
+
       await message.delete().catch(() => {});
       await saveCountingGameConfig(client, message.guild.id, {
         ...config,
@@ -143,6 +146,9 @@ async function handleCountingGame(message, client) {
 
       return true;
     }
+
+    // 💡 Added: React with ✅ on correct counts
+    await message.react('✅').catch(() => null);
 
     await recordCorrectCount(client, message.guild.id, message.author.id);
     return true;
