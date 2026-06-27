@@ -197,7 +197,7 @@ class TitanBot extends Client {
 
     app.get('/', (req, res) => {
       res.status(200).json({ 
-        message: 'TitanBot System Online',
+        message: 'ScreenMaple API Network',
         version: pkg.version,
         timestamp: new Date().toISOString()
       });

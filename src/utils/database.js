@@ -32,13 +32,6 @@ export async function initializeDatabase() {
     }
 }
 
-// Emulating backward compatibility exports for generic wrappers if required elsewhere
-export const db = {
-    get initialized() { return !!mongoDb; },
-    isAvailable: () => !!mongoDb,
-    initialize: initializeDatabase
-};
-
 export async function getFromDb(key, defaultValue = null) {
     try {
         const col = getCollection("kv_store");
@@ -53,7 +46,8 @@ export async function getFromDb(key, defaultValue = null) {
 export async function setInDb(key, value) {
     try {
         const col = getCollection("kv_store");
-        await col.updateOne({ _id: key }, { $set: { value, updatedAt: new Date() } }, { upsers: true });
+        // 💡 FIXED: Changed 'upsers: true' to 'upsert: true'
+        await col.updateOne({ _id: key }, { $set: { value, updatedAt: new Date() } }, { upsert: true });
         return true;
     } catch (error) {
         logger.error(`Error setting key ${key} in MongoDB:`, error);
@@ -71,6 +65,18 @@ export async function deleteFromDb(key) {
         return false;
     }
 }
+
+// Emulating backward compatibility exports for generic wrappers if required elsewhere
+export const db = {
+    get initialized() { return !!mongoDb; },
+    isAvailable: () => !!mongoDb,
+    initialize: initializeDatabase,
+    
+    // 💡 FIXED: Mapped missing operations to resolve service failures
+    get: getFromDb,
+    set: setInDb,
+    delete: deleteFromDb
+};
 
 export {
     getGuildConfigKey,
@@ -418,6 +424,7 @@ function getApplicationRetentionDays(settings = {}) {
     };
 }
 
+// Helper block for application checking logic
 function isApplicationExpired(application, retentionDays, now = Date.now()) {
     if (!application) return false;
     const createdAt = Number(application.createdAt) || now;
