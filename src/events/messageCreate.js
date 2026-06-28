@@ -124,6 +124,15 @@ async function handleCountingGame(message, client) {
     }
 
     const content = message.content.trim();
+
+    // Check if the message is a valid math expression or pure number
+    const isMathExpressionOrNumber = /^[0-9+\-*/().=\s]+$/.test(content);
+
+    // If it's not a math expression/number at all, just ignore it
+    if (!isMathExpressionOrNumber) {
+      return false;
+    }
+
     const validCount = isValidCountingMessage(content, config);
     const invalidAttempt = !validCount || message.author.id === config.lastUserId;
 

@@ -7,8 +7,6 @@ import {
   disableCountingGame,
   resetCountingGame,
   buildCountingLeaderboard,
-  getCountingSystemChoices,
-  getCountingSystemLabel,
   getExpectedCountValue,
 } from '../../services/countingGameService.js';
 import { logger } from '../../utils/logger.js';
@@ -29,19 +27,6 @@ export default {
             .setDescription('The channel where counting will take place')
             .setRequired(true)
             .addChannelTypes(ChannelType.GuildText),
-        )
-        .addStringOption((option) =>
-          option
-            .setName('system')
-            .setDescription('The counting system to use')
-            .setRequired(true)
-            .addChoices(...getCountingSystemChoices()),
-        )
-        .addBooleanOption((option) =>
-          option
-            .setName('onlynumbers')
-            .setDescription('Whether to restrict counting to pure numbers')
-            .setRequired(false),
         ),
     )
     .addSubcommand((subcommand) =>
@@ -84,8 +69,6 @@ export default {
 
       if (subcommand === 'setup') {
         const channel = interaction.options.getChannel('channel');
-        const system = interaction.options.getString('system');
-        const onlyNumbers = interaction.options.getBoolean('onlynumbers') ?? false;
 
         if (!channel || channel.type !== ChannelType.GuildText) {
           return await replyUserError(interaction, { type: ErrorTypes.VALIDATION, message: 'Please choose a text channel for the counting game.' });
@@ -95,12 +78,12 @@ export default {
           return await replyUserError(interaction, { type: ErrorTypes.UNKNOWN, message: `This server already has an active counting channel configured: <#${config.channelId}>. Disable the current counting game first, or use that existing channel.` });
         }
 
-        await activateCountingGame(interaction.client, guildId, channel.id, system, onlyNumbers);
+        await activateCountingGame(interaction.client, guildId, channel.id, 'math', false);
         return await InteractionHelper.safeEditReply(interaction, {
           embeds: [
             successEmbed(
               'Counting Game Enabled',
-              `The counting game is now active in ${channel} using the **${getCountingSystemLabel(system)}** system (Only Numbers: **${onlyNumbers ? 'Yes' : 'No'}**). Players must count up from **1** and may not post two numbers in a row.`,
+              `The counting game is now active in ${channel}. Players can count by sending either the exact number (e.g., **1**) or a math expression that equals it (e.g., **1+0**). The sequence starts at **1** and players may not post two numbers in a row.`,
             ),
           ],
         });
@@ -123,8 +106,7 @@ export default {
         const fields = [
           { name: 'Enabled', value: config.enabled ? 'Yes' : 'No', inline: true },
           { name: 'Channel', value: config.channelId ? `<#${config.channelId}>` : 'Not configured', inline: true },
-          { name: 'System', value: getCountingSystemLabel(config.system), inline: true },
-          { name: 'Only Numbers', value: config.onlyNumbers ? 'Yes' : 'No', inline: true },
+          { name: 'Mode', value: 'Math Expressions', inline: true },
           { name: 'Next count', value: getExpectedCountValue(config), inline: true },
           { name: 'Current streak', value: `${config.currentStreak}`, inline: true },
           { name: 'Best streak', value: `${config.bestStreak || 0}`, inline: true },
