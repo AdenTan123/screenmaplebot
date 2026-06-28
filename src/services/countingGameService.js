@@ -173,6 +173,7 @@ const DEFAULT_COUNTING_GAME = {
   enabled: false,
   channelId: null,
   system: 'decimal',
+  onlyNumbers: false,
   nextNumber: 1,
   lastUserId: null,
   currentStreak: 0,
@@ -264,6 +265,11 @@ export function getExpectedCountValue(config) {
 
 export function isValidCountingMessage(content, config) {
   const trimmed = content.trim();
+
+  if (config.onlyNumbers && !/^\d+$/.test(trimmed)) {
+    return false;
+  }
+
   const system = COUNTING_SYSTEMS[config.system] ? config.system : 'decimal';
   const current = COUNTING_SYSTEMS[system];
   if (system === 'math') {
@@ -278,12 +284,13 @@ export function isValidCountingMessage(content, config) {
   return trimmed === expected;
 }
 
-export async function activateCountingGame(client, guildId, channelId, system = 'decimal') {
+export async function activateCountingGame(client, guildId, channelId, system = 'decimal', onlyNumbers = false) {
   const normalizedSystem = COUNTING_SYSTEMS[system] ? system : 'decimal';
   const config = normalizeCountingGame({
     enabled: true,
     channelId,
     system: normalizedSystem,
+    onlyNumbers,
     nextNumber: 1,
     lastUserId: null,
     currentStreak: 0,

@@ -8,48 +8,19 @@ import {
   ButtonBuilder
 } from 'discord.js';
 import { 
-  createTicket, 
   closeTicket, 
   claimTicket, 
   updateTicketPriority 
 } from '../services/ticket.js';
-import { getGuildConfig } from '../services/guildConfig.js';
 import { logger } from '../utils/logger.js';
 
 // ==========================================
-// BUTTON HANDLERS (Exported Objects)
+// PRIVATE TICKET BUTTON HANDLERS
 // ==========================================
 
-// 1. Create Ticket Trigger (Default Export expected by buttons/ticket.js)
-const createTicketHandler = {
-  name: 'create_ticket', // Matches starting string or exact customId depending on router matching rule
-  async execute(interaction) {
-    const { customId, guild } = interaction;
-    const panelId = customId.split(':')[1] || 'default';
-    
-    const config = await getGuildConfig(guild.client, guild.id);
-    const ticketConfig = config?.tickets?.[panelId] || config?.tickets || {};
-
-    const modal = new ModalBuilder()
-      .setCustomId(`ticket_create_modal:${panelId}`)
-      .setTitle(ticketConfig.modalTitle || 'Create a Ticket');
-
-    const reasonInput = new TextInputBuilder()
-      .setCustomId('ticket_reason')
-      .setLabel('Why are you opening this ticket?')
-      .setStyle(TextInputStyle.Paragraph)
-      .setPlaceholder('Describe your issue or question here...')
-      .setRequired(true)
-      .setMaxLength(1000);
-
-    modal.addComponents(new ActionRowBuilder().addComponents(reasonInput));
-    await interaction.showModal(modal);
-  }
-};
-
-export default createTicketHandler;
-
-// 2. Claim Ticket Button
+/**
+ * Handles claiming a private ticket channel
+ */
 export const claimTicketHandler = {
   name: 'ticket_claim',
   async execute(interaction) {
@@ -61,6 +32,7 @@ export const claimTicketHandler = {
       return interaction.editReply({ content: result.error });
     }
 
+    // Update the control panel message inside the channel
     const updatedRow = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setCustomId('ticket_claim')
@@ -81,23 +53,25 @@ export const claimTicketHandler = {
     );
 
     await interaction.message.edit({ components: [updatedRow] });
-    return interaction.editReply({ content: 'You have successfully claimed this ticket.' });
+    return interaction.editReply({ content: 'You have successfully claimed this private ticket.' });
   }
 };
 
-// 3. Close Ticket Trigger Button
+/**
+ * Spawns the close reasoning modal inside the private channel
+ */
 export const closeTicketHandler = {
   name: 'ticket_close',
   async execute(interaction) {
     const modal = new ModalBuilder()
       .setCustomId('ticket_close_modal')
-      .setTitle('Close Ticket');
+      .setTitle('Close Private Ticket');
 
     const reasonInput = new TextInputBuilder()
       .setCustomId('close_reason')
       .setLabel('Reason for closing')
       .setStyle(TextInputStyle.Paragraph)
-      .setPlaceholder('Provide a reason for closing this ticket...')
+      .setPlaceholder('Provide a closure reason...')
       .setRequired(false)
       .setMaxLength(500);
 
@@ -106,7 +80,9 @@ export const closeTicketHandler = {
   }
 };
 
-// 4. Pin Ticket Button
+/**
+ * Pins the private ticket channel for reference
+ */
 export const pinTicketHandler = {
   name: 'ticket_pin',
   async execute(interaction) {
@@ -116,21 +92,23 @@ export const pinTicketHandler = {
       await channel.pin();
       return interaction.editReply({ content: '📌 Ticket channel pinned successfully.' });
     } catch (error) {
-      logger.error('Failed to pin ticket channel:', error);
-      return interaction.editReply({ content: 'Failed to pin this channel. Ensure I have the right permissions.' });
+      logger.error('Failed to pin private ticket channel:', error);
+      return interaction.editReply({ content: 'Failed to pin this channel. Check my permissions.' });
     }
   }
 };
 
-// 5. Adjust Priority Button
+/**
+ * Priority handling switch inside the ticket
+ */
 export const priorityTicketHandler = {
   name: 'ticket_priority',
   async execute(interaction) {
     const { customId, channel, member } = interaction;
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     const priority = customId.split(':')[1] || 'low';
+    
     const result = await updateTicketPriority(channel, priority, member);
-
     if (!result.success) {
       return interaction.editReply({ content: result.error });
     }
@@ -138,43 +116,23 @@ export const priorityTicketHandler = {
   }
 };
 
-// Placeholders for remaining button hooks expected by buttons/ticket.js array
-export const unclaimTicketHandler = { name: 'ticket_unclaim', async execute(i) { await i.reply({ content: 'Feature coming soon.', flags: MessageFlags.Ephemeral }); } };
-export const reopenTicketHandler = { name: 'ticket_reopen', async execute(i) { await i.reply({ content: 'Feature coming soon.', flags: MessageFlags.Ephemeral }); } };
-export const deleteTicketHandler = { name: 'ticket_delete', async execute(i) { await i.reply({ content: 'Feature coming soon.', flags: MessageFlags.Ephemeral }); } };
+// Clean placeholders for array matching stability inside buttons/ticket.js
+export const unclaimTicketHandler = { name: 'ticket_unclaim', async execute(i) { await i.reply({ content: 'Feature disabled.', flags: MessageFlags.Ephemeral }); } };
+export const reopenTicketHandler  = { name: 'ticket_reopen',  async execute(i) { await i.reply({ content: 'Feature disabled.', flags: MessageFlags.Ephemeral }); } };
+export const deleteTicketHandler  = { name: 'ticket_delete',  async execute(i) { await i.reply({ content: 'Feature disabled.', flags: MessageFlags.Ephemeral }); } };
+
+// Dummy placeholder to safely satisfy the main creator default import signature if left untouched
+const createTicketHandler = { name: 'create_ticket', async execute(i) { } };
+export default createTicketHandler;
 
 
 // ==========================================
-// MODAL HANDLERS (Exported Objects)
+// PRIVATE TICKET MODAL HANDLERS
 // ==========================================
 
-// 1. Ticket Creation Form Submission
-export const createTicketModalHandler = {
-  name: 'ticket_create_modal',
-  async execute(interaction) {
-    const { customId, guild, member, fields } = interaction;
-    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-    
-    const panelId = customId.split(':')[1] || 'default';
-    const reason = fields.getTextInputValue('ticket_reason');
-
-    const config = await getGuildConfig(guild.client, guild.id);
-    const ticketConfig = config?.tickets?.[panelId] || {};
-    const categoryId = ticketConfig.ticketCategoryId || null;
-
-    const result = await createTicket(guild, member, categoryId, reason, 'none');
-
-    if (!result.success) {
-      return interaction.editReply({ content: result.error });
-    }
-
-    return interaction.editReply({ 
-      content: `📬 Your ticket has been created successfully: ${result.channel.toString()}` 
-    });
-  }
-};
-
-// 2. Ticket Closing Form Submission
+/**
+ * Executes the modal closure collection sequence
+ */
 export const closeTicketModalHandler = {
   name: 'ticket_close_modal',
   async execute(interaction) {
@@ -189,3 +147,6 @@ export const closeTicketModalHandler = {
     }
   }
 };
+
+// Empty baseline exporter to keep modal/ticket.js from throwing unmapped import errors
+export const createTicketModalHandler = { name: 'ticket_create_modal', async execute(i) { } };

@@ -80,7 +80,7 @@ export const GuildConfigSchema = z
     // Ticket system fields
     ticketCategoryId: z.string().nullable().optional(),
     ticketClosedCategoryId: z.string().nullable().optional(),
-    ticketStaffRoleId: z.string().nullable().optional(),
+    ticketStaffRoleIds: z.array(z.string()).default([]),
     ticketPanelChannelId: z.string().nullable().optional(),
     ticketPanelMessageId: z.string().nullable().optional(),
     ticketPanelMessage: z.string().optional(),

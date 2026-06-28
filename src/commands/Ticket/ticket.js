@@ -64,8 +64,20 @@ export default {
                 )
                 .addRoleOption((option) =>
                     option
-                        .setName('staff_role')
-                        .setDescription('The role that can access tickets (optional).')
+                        .setName('staff_role_1')
+                        .setDescription('First staff role that can access tickets (optional).')
+                        .setRequired(false),
+                )
+                .addRoleOption((option) =>
+                    option
+                        .setName('staff_role_2')
+                        .setDescription('Second staff role that can access tickets (optional).')
+                        .setRequired(false),
+                )
+                .addRoleOption((option) =>
+                    option
+                        .setName('staff_role_3')
+                        .setDescription('Third staff role that can access tickets (optional).')
                         .setRequired(false),
                 )
                 .addIntegerOption((option) =>
