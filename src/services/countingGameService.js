@@ -188,6 +188,7 @@ function normalizeCountingGame(state) {
   };
 
   normalized.system = COUNTING_SYSTEMS[normalized.system] ? normalized.system : 'decimal';
+  normalized.onlyNumbers = typeof normalized.onlyNumbers === 'boolean' ? normalized.onlyNumbers : DEFAULT_COUNTING_GAME.onlyNumbers;
   normalized.leaderboard = normalized.leaderboard && typeof normalized.leaderboard === 'object'
     ? { ...normalized.leaderboard }
     : {};
@@ -266,7 +267,9 @@ export function getExpectedCountValue(config) {
 export function isValidCountingMessage(content, config) {
   const trimmed = content.trim();
 
-  if (config.onlyNumbers && !/^\d+$/.test(trimmed)) {
+  // Ensure onlyNumbers is treated as false if not explicitly true
+  const shouldRestrictToNumbers = config.onlyNumbers === true;
+  if (shouldRestrictToNumbers && !/^\d+$/.test(trimmed)) {
     return false;
   }
 

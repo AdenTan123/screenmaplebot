@@ -37,7 +37,7 @@ function getApplicationStatusPresentation(statusValue) {
 
 export default {
     data: new SlashCommandBuilder()
-    .setName("app-admin")
+    .setName("applications")
     .setDescription("Manage staff applications")
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .addSubcommand((subcommand) =>
