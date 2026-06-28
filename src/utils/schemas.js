@@ -76,7 +76,34 @@ export const GuildConfigSchema = z
     logging: LoggingConfigSchema.optional(),
     ticketLogging: TicketLoggingSchema.optional(),
     enableLogging: z.boolean().optional(),
-    verification: VerificationConfigSchema
+    verification: VerificationConfigSchema,
+    // Ticket system fields
+    ticketCategoryId: z.string().nullable().optional(),
+    ticketClosedCategoryId: z.string().nullable().optional(),
+    ticketStaffRoleId: z.string().nullable().optional(),
+    ticketPanelChannelId: z.string().nullable().optional(),
+    ticketPanelMessageId: z.string().nullable().optional(),
+    ticketPanelMessage: z.string().optional(),
+    ticketButtonLabel: z.string().optional(),
+    maxTicketsPerUser: z.number().int().optional(),
+    ticketAllowedUsers: z.array(z.string()).optional(),
+    ticketPanels: z.array(
+      z.object({
+        panelChannelId: z.string(),
+        panelMessageId: z.string().nullable().optional(),
+        panelMessage: z.string(),
+        buttonLabel: z.string(),
+        categoryId: z.string().nullable().optional(),
+        closedCategoryId: z.string().nullable().optional(),
+        staffRoleId: z.string().nullable().optional(),
+        maxTicketsPerUser: z.number().int(),
+        dmOnClose: z.boolean(),
+        createdAt: z.string(),
+      })
+    ).optional(),
+    ticketLogsChannelId: z.string().nullable().optional(),
+    ticketTranscriptChannelId: z.string().nullable().optional(),
+    enablePriority: z.boolean().default(false).optional(),
   })
   .passthrough();
 
