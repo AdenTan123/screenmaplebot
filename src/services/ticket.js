@@ -1,4 +1,5 @@
-// ticket.js
+// ticket.js — service layer
+// New exports appended at the bottom: createPrivateTicket, addUserToTicket, removeUserFromTicket
 
 import {
   ChannelType,
@@ -16,6 +17,7 @@ import { createEmbed, errorEmbed } from '../utils/embeds.js';
 import { logTicketEvent } from '../utils/ticketLogging.js';
 import { ensureTypedServiceError } from '../utils/serviceErrorBoundary.js';
 import { PRIORITY_MAP } from '../utils/helpers.js';
+
 const TICKET_DELETE_DELAY_MS = 3000;
 const TICKET_DELETE_DELAY_SECONDS = Math.floor(TICKET_DELETE_DELAY_MS / 1000);
 
@@ -367,7 +369,7 @@ export async function closeTicket(channel, closer, reason = 'No reason provided'
       
       await ticketMessage.edit({ 
         embeds: [updatedEmbed],
-components: []
+        components: []
       });
     }
     
@@ -683,10 +685,7 @@ function escapeHtml(text) {
 
 async function generateTranscript(channel) {
   try {
-    logger.debug('Generating transcript for channel', {
-      channelId: channel.id,
-      channelName: channel.name
-    });
+    logger.debug('Generating transcript for channel', { channelId: channel.id, channelName: channel.name });
 
     const messages = [];
     let before = undefined;
@@ -746,22 +745,10 @@ ${rows}
     const buffer = Buffer.from(html, 'utf8');
     const attachment = new AttachmentBuilder(buffer, { name: `ticket-${channel.id}.html` });
 
-    logger.info('✅ Successfully generated transcript', {
-      channelId: channel.id,
-      channelName: channel.name,
-      messageCount: messages.length,
-      size: buffer.length
-    });
-
+    logger.info('Transcript generated', { channelId: channel.id, messageCount: messages.length });
     return attachment;
   } catch (error) {
-    logger.error('❌ Failed to generate transcript:', {
-      channelId: channel.id,
-      channelName: channel.name,
-      errorMessage: error.message,
-      errorName: error.name,
-      errorStack: error.stack
-    });
+    logger.error('Failed to generate transcript:', { channelId: channel.id, error: error.message });
     return null;
   }
 }
@@ -791,64 +778,25 @@ export async function deleteTicket(channel, deleter) {
         ticketNumber: ticketData.id,
         userId: ticketData.userId,
         executorId: deleter.id,
-        metadata: {
-          deletedAt: new Date().toISOString()
-        }
+        metadata: { deletedAt: new Date().toISOString() }
       }
     });
 
     setTimeout(async () => {
       try {
-        logger.debug('Starting ticket deletion process', {
-          channelId: channel.id,
-          ticketId: ticketData.id
-        });
-
         let attachment = null;
         try {
           attachment = await generateTranscript(channel);
-          if (attachment) {
-            logger.info('Transcript generated successfully, attempting to send', {
-              channelId: channel.id,
-              ticketNumber: ticketData.id
-            });
-          } else {
-            logger.warn('Transcript generation returned null', {
-              channelId: channel.id,
-              ticketNumber: ticketData.id
-            });
-          }
         } catch (transcriptError) {
-          logger.error('Error during transcript generation', {
-            channelId: channel.id,
-            ticketNumber: ticketData.id,
-            error: transcriptError.message
-          });
+          logger.error('Error during transcript generation', { channelId: channel.id, error: transcriptError.message });
         }
 
         if (attachment) {
           try {
             const guildConfig = await getGuildConfig(channel.client, channel.guild.id);
-            if (!guildConfig.ticketTranscriptChannelId) {
-              logger.warn('No transcript channel configured, skipping transcript send', {
-                channelId: channel.id,
-                ticketNumber: ticketData.id
-              });
-            } else {
+            if (guildConfig.ticketTranscriptChannelId) {
               const transcriptChannel = await channel.client.channels.fetch(guildConfig.ticketTranscriptChannelId).catch(() => null);
-              
-              if (!transcriptChannel) {
-                logger.error('Could not fetch transcript channel', {
-                  channelId: channel.id,
-                  transcriptChannelId: guildConfig.ticketTranscriptChannelId
-                });
-              } else if (!transcriptChannel.isSendable()) {
-                logger.error('Transcript channel exists but is not sendable', {
-                  channelId: channel.id,
-                  transcriptChannelId: transcriptChannel.id
-                });
-              } else {
-                
+              if (transcriptChannel?.isSendable()) {
                 const transcriptEmbed = buildStandardLogEmbed({
                   color: 0x3498db,
                   title: 'Ticket Transcript',
@@ -862,54 +810,19 @@ export async function deleteTicket(channel, deleter) {
                     : undefined,
                   timestamp: true,
                 });
-
-                await transcriptChannel.send({
-                  embeds: [transcriptEmbed],
-                  files: [attachment]
-                });
-
-                logger.info('✅ Transcript sent successfully', {
-                  channelId: channel.id,
-                  ticketNumber: ticketData.id,
-                  transcriptChannelId: transcriptChannel.id
-                });
+                await transcriptChannel.send({ embeds: [transcriptEmbed], files: [attachment] });
               }
             }
           } catch (sendError) {
-            logger.error('Failed to send transcript to channel:', {
-              channelId: channel.id,
-              ticketNumber: ticketData.id,
-              error: sendError.message
-            });
+            logger.error('Failed to send transcript:', { channelId: channel.id, error: sendError.message });
           }
         }
 
-        try {
-          await channel.delete('Ticket deleted permanently');
-          logger.info('✅ Channel deleted', {
-            channelId: channel.id,
-            channelName: channel.name,
-            ticketNumber: ticketData.id
-          });
-        } catch (deleteError) {
-          logger.error('❌ Failed to delete ticket channel:', {
-            channelId: channel.id,
-            channelName: channel.name,
-            ticketNumber: ticketData.id,
-            errorMessage: deleteError.message,
-            errorCode: deleteError.code,
-            errorName: deleteError.name
-          });
-        }
-      } catch (error) {
-        logger.error('❌ Unexpected error during ticket deletion:', {
-          channelId: channel.id,
-          channelName: channel?.name,
-          ticketNumber: ticketData?.id,
-          errorMessage: error.message,
-          errorName: error.name,
-          errorStack: error.stack
+        await channel.delete('Ticket deleted permanently').catch((deleteError) => {
+          logger.error('Failed to delete ticket channel:', { channelId: channel.id, error: deleteError.message });
         });
+      } catch (error) {
+        logger.error('Unexpected error during ticket deletion:', { channelId: channel.id, error: error.message });
       }
     }, TICKET_DELETE_DELAY_MS);
     
@@ -928,12 +841,10 @@ export async function deleteTicket(channel, deleter) {
       channelId: channel?.id,
       userId: deleter?.id,
       error: typedError.message,
-      errorCode: typedError.context?.errorCode
     });
     return { 
       success: false, 
       error: typedError.userMessage || typedError.message,
-      errorCode: typedError.context?.errorCode
     };
   }
 }
@@ -946,17 +857,11 @@ export async function unclaimTicket(channel, unclaimer) {
     }
     
     if (!ticketData.claimedBy) {
-      return { 
-        success: false, 
-        error: 'This ticket is not currently claimed' 
-      };
+      return { success: false, error: 'This ticket is not currently claimed' };
     }
     
     if (ticketData.claimedBy !== unclaimer.id && !unclaimer.permissions.has(PermissionFlagsBits.ManageChannels)) {
-      return { 
-        success: false, 
-        error: 'You can only unclaim your own tickets or need Manage Channels permission.' 
-      };
+      return { success: false, error: 'You can only unclaim your own tickets or need Manage Channels permission.' };
     }
     
     const previousClaimer = ticketData.claimedBy;
@@ -967,24 +872,14 @@ export async function unclaimTicket(channel, unclaimer) {
     
     const messages = await channel.messages.fetch();
     const ticketMessage = messages.find(m => 
-      m.embeds.length > 0 && 
-      m.embeds[0].title?.startsWith('Ticket #')
+      m.embeds.length > 0 && m.embeds[0].title?.startsWith('Ticket #')
     );
     
     if (ticketMessage) {
       const embed = ticketMessage.embeds[0];
       const claimedField = embed.fields?.find(f => f.name === 'Claimed By');
-      
-      if (claimedField) {
-        claimedField.value = 'Not claimed';
-      }
-      
-      const row = buildTicketControlRow();
-      
-      await ticketMessage.edit({ 
-        embeds: [embed],
-        components: [row] 
-      });
+      if (claimedField) claimedField.value = 'Not claimed';
+      await ticketMessage.edit({ embeds: [embed], components: [buildTicketControlRow()] });
     }
     
     const claimMessage = messages.find(m => 
@@ -992,24 +887,15 @@ export async function unclaimTicket(channel, unclaimer) {
       (m.embeds[0].title === 'Ticket Claimed' || m.embeds[0].title === 'Ticket Unclaimed')
     );
     
+    const unclaimEmbed = createEmbed({
+      title: 'Ticket Unclaimed',
+      description: `🔓 ${unclaimer} has unclaimed this ticket!`,
+      color: '#f39c12'
+    });
+    
     if (claimMessage) {
-      const unclaimEmbed = createEmbed({
-        title: 'Ticket Unclaimed',
-        description: `🔓 ${unclaimer} has unclaimed this ticket!`,
-        color: '#f39c12'
-      });
-      
-      await claimMessage.edit({ 
-        embeds: [unclaimEmbed],
-        components: []
-      });
+      await claimMessage.edit({ embeds: [unclaimEmbed], components: [] });
     } else {
-      const unclaimEmbed = createEmbed({
-        title: 'Ticket Unclaimed',
-        description: `🔓 ${unclaimer} has unclaimed this ticket!`,
-        color: '#f39c12'
-      });
-      
       await channel.send({ embeds: [unclaimEmbed] });
     }
     
@@ -1022,9 +908,7 @@ export async function unclaimTicket(channel, unclaimer) {
         ticketNumber: ticketData.id,
         userId: ticketData.userId,
         executorId: unclaimer.id,
-        metadata: {
-          previousClaimer: previousClaimer
-        }
+        metadata: { previousClaimer }
       }
     });
     
@@ -1038,18 +922,8 @@ export async function unclaimTicket(channel, unclaimer) {
       userMessage: 'Failed to unclaim ticket. Please try again in a moment.',
       context: { guildId: channel?.guild?.id, channelId: channel?.id, unclaimerId: unclaimer?.id }
     });
-    logger.error('Error unclaiming ticket:', {
-      guildId: channel?.guild?.id,
-      channelId: channel?.id,
-      userId: unclaimer?.id,
-      error: typedError.message,
-      errorCode: typedError.context?.errorCode
-    });
-    return { 
-      success: false, 
-      error: typedError.userMessage || typedError.message,
-      errorCode: typedError.context?.errorCode
-    };
+    logger.error('Error unclaiming ticket:', { error: typedError.message });
+    return { success: false, error: typedError.userMessage || typedError.message };
   }
 }
 
@@ -1084,22 +958,18 @@ export async function updateTicketPriority(channel, priority, updater) {
     const newName = priority === 'none' ? cleanName : `${priorityInfo.emoji} ${cleanName}`;
 
     if (newName && newName !== currentName) {
-      try {
-        await channel.setName(newName);
-      } catch (nameError) {
+      await channel.setName(newName).catch((nameError) => {
         logger.warn(`Could not update channel name for priority: ${nameError.message}`);
-      }
+      });
     }
     
     const messages = await channel.messages.fetch();
     const ticketMessage = messages.find(m => 
-      m.embeds.length > 0 && 
-      m.embeds[0].title?.startsWith('Ticket #')
+      m.embeds.length > 0 && m.embeds[0].title?.startsWith('Ticket #')
     );
     
     if (ticketMessage) {
       const embed = ticketMessage.embeds[0];
-      
       const updatedEmbed = createEmbed({
         title: embed.title || 'Ticket',
         description: embed.description?.split('\n**Priority:**')[0] + `\n**Priority:** ${priorityInfo.emoji} ${priorityInfo.label}`,
@@ -1107,17 +977,16 @@ export async function updateTicketPriority(channel, priority, updater) {
         fields: embed.fields || [],
         footer: embed.footer
       });
-      
       await ticketMessage.edit({ embeds: [updatedEmbed] });
     }
     
-    const updateEmbed = createEmbed({
-      title: 'Priority Updated',
-      description: `📊 Ticket priority updated to **${priorityInfo.emoji} ${priorityInfo.label}** by ${updater}`,
-      color: priorityInfo.color
+    await channel.send({
+      embeds: [createEmbed({
+        title: 'Priority Updated',
+        description: `📊 Ticket priority updated to **${priorityInfo.emoji} ${priorityInfo.label}** by ${updater}`,
+        color: priorityInfo.color
+      })]
     });
-    
-    await channel.send({ embeds: [updateEmbed] });
     
     await logTicketEvent({
       client: channel.client,
@@ -1128,11 +997,8 @@ export async function updateTicketPriority(channel, priority, updater) {
         ticketNumber: ticketData.id,
         userId: ticketData.userId,
         executorId: updater.id,
-        priority: priority,
-        metadata: {
-          previousPriority: ticketData.priority,
-          updatedAt: ticketData.priorityUpdatedAt
-        }
+        priority,
+        metadata: { previousPriority: ticketData.priority, updatedAt: ticketData.priorityUpdatedAt }
       }
     });
     
@@ -1146,17 +1012,194 @@ export async function updateTicketPriority(channel, priority, updater) {
       userMessage: 'Failed to update ticket priority. Please try again in a moment.',
       context: { guildId: channel?.guild?.id, channelId: channel?.id, updaterId: updater?.id, priority }
     });
-    logger.error('Error updating ticket priority:', {
-      guildId: channel?.guild?.id,
-      channelId: channel?.id,
-      userId: updater?.id,
-      error: typedError.message,
-      errorCode: typedError.context?.errorCode
+    logger.error('Error updating ticket priority:', { error: typedError.message });
+    return { success: false, error: typedError.userMessage || typedError.message };
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// NEW: createPrivateTicket
+// Opens a private ticket visible only to the opener, the target user, and staff
+// ─────────────────────────────────────────────────────────────────────────────
+export async function createPrivateTicket(guild, opener, targetUser, categoryId, reason = 'Private staff conversation') {
+  try {
+    const config = await getGuildConfig(guild.client, guild.id);
+
+    let category = categoryId
+      ? guild.channels.cache.get(categoryId)
+      : guild.channels.cache.find(
+          (c) => c.type === ChannelType.GuildCategory && c.name.toLowerCase().includes('tickets'),
+        );
+
+    const ticketNumber = await getNextTicketNumber(guild.id);
+    const channelName = `private-${ticketNumber}`;
+
+    const permissionOverwrites = [
+      { id: guild.id, deny: [PermissionFlagsBits.ViewChannel] },
+      {
+        id: opener.id,
+        allow: [
+          PermissionFlagsBits.ViewChannel,
+          PermissionFlagsBits.SendMessages,
+          PermissionFlagsBits.AttachFiles,
+          PermissionFlagsBits.ReadMessageHistory,
+        ],
+      },
+      {
+        id: targetUser.id,
+        allow: [
+          PermissionFlagsBits.ViewChannel,
+          PermissionFlagsBits.SendMessages,
+          PermissionFlagsBits.AttachFiles,
+          PermissionFlagsBits.ReadMessageHistory,
+        ],
+      },
+    ];
+
+    if (config.ticketStaffRoleId) {
+      permissionOverwrites.push({
+        id: config.ticketStaffRoleId,
+        allow: [
+          PermissionFlagsBits.ViewChannel,
+          PermissionFlagsBits.SendMessages,
+          PermissionFlagsBits.AttachFiles,
+          PermissionFlagsBits.ReadMessageHistory,
+        ],
+      });
+    }
+
+    const channel = await guild.channels.create({
+      name: channelName,
+      type: ChannelType.GuildText,
+      parent: category?.id,
+      permissionOverwrites,
     });
-    return { 
-      success: false, 
-      error: typedError.userMessage || typedError.message,
-      errorCode: typedError.context?.errorCode
+
+    const ticketData = {
+      id: channel.id,
+      userId: opener.id,
+      guildId: guild.id,
+      createdAt: new Date().toISOString(),
+      status: 'open',
+      claimedBy: null,
+      priority: 'none',
+      reason,
+      isPrivate: true,
+      privateTargetId: targetUser.id,
     };
+
+    await saveTicketData(guild.id, channel.id, ticketData);
+
+    const embed = createEmbed({
+      title: `Private Ticket #${ticketNumber}`,
+      description: `${opener.toString()} has opened a private ticket with ${targetUser.toString()}.\n\n**Reason:** ${reason}`,
+      color: '#9b59b6',
+      fields: [
+        { name: 'Status', value: '🟢 Open', inline: true },
+        { name: 'Opened by', value: opener.toString(), inline: true },
+        { name: 'With', value: targetUser.toString(), inline: true },
+        { name: 'Created', value: `<t:${Math.floor(Date.now() / 1000)}:R>`, inline: true },
+      ],
+    });
+
+    const row = buildTicketControlRow();
+    const staffMention = config.ticketStaffRoleId ? ` <@&${config.ticketStaffRoleId}>` : '';
+
+    const ticketMessage = await channel.send({
+      content: `${opener.toString()} ${targetUser.toString()}${staffMention}`,
+      embeds: [embed],
+      components: [row],
+    });
+
+    await ticketMessage.pin().catch(() => {});
+
+    await logTicketEvent({
+      client: guild.client,
+      guildId: guild.id,
+      event: {
+        type: 'open',
+        ticketId: channel.id,
+        ticketNumber,
+        userId: opener.id,
+        executorId: opener.id,
+        reason,
+        metadata: {
+          channelId: channel.id,
+          isPrivate: true,
+          privateTargetId: targetUser.id,
+        },
+      },
+    });
+
+    return { success: true, channel, ticketData };
+  } catch (error) {
+    const typedError = ensureTypedServiceError(error, {
+      service: 'ticketService',
+      operation: 'createPrivateTicket',
+      message: 'Ticket operation failed: createPrivateTicket',
+      userMessage: 'Failed to create private ticket. Please try again in a moment.',
+      context: { guildId: guild?.id, openerId: opener?.id, targetId: targetUser?.id },
+    });
+    logger.error('Error creating private ticket:', { error: typedError.message });
+    return { success: false, error: typedError.userMessage || typedError.message };
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// NEW: addUserToTicket
+// Grants a user view + send access to a ticket channel
+// ─────────────────────────────────────────────────────────────────────────────
+export async function addUserToTicket(channel, member) {
+  try {
+    const existing = channel.permissionOverwrites.cache.get(member.id);
+    if (existing?.allow.has(PermissionFlagsBits.ViewChannel)) {
+      return { success: false, error: `${member.user.tag} already has access to this ticket.` };
+    }
+
+    await channel.permissionOverwrites.create(member, {
+      ViewChannel: true,
+      SendMessages: true,
+      ReadMessageHistory: true,
+      AttachFiles: true,
+    });
+
+    await channel.send({
+      embeds: [createEmbed({
+        title: 'User Added',
+        description: `${member.toString()} has been added to this ticket.`,
+        color: '#2ecc71',
+      })],
+    });
+
+    return { success: true };
+  } catch (error) {
+    logger.error('Error adding user to ticket:', { channelId: channel.id, memberId: member.id, error: error.message });
+    return { success: false, error: 'Failed to add user to ticket.' };
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// NEW: removeUserFromTicket
+// Revokes a user's access to a ticket channel
+// ─────────────────────────────────────────────────────────────────────────────
+export async function removeUserFromTicket(channel, memberOrUser) {
+  try {
+    await channel.permissionOverwrites.create(memberOrUser, {
+      ViewChannel: false,
+      SendMessages: false,
+    });
+
+    await channel.send({
+      embeds: [createEmbed({
+        title: 'User Removed',
+        description: `<@${memberOrUser.id}> has been removed from this ticket.`,
+        color: '#e74c3c',
+      })],
+    });
+
+    return { success: true };
+  } catch (error) {
+    logger.error('Error removing user from ticket:', { channelId: channel.id, userId: memberOrUser.id, error: error.message });
+    return { success: false, error: 'Failed to remove user from ticket.' };
   }
 }
