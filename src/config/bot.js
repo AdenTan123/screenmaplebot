@@ -24,7 +24,7 @@ export const botConfig = {
     activities: [
       {
         // Text users will see (example: "Playing /help | Titan Bot").
-        name: "ScreenMaple Utilities",
+        name: "https://hjackstudios.odoo.com | H. Jack Studios",
         // Activity type number (0 = Playing).
         type: 4,
       },
