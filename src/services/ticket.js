@@ -17,6 +17,7 @@ import { createEmbed, errorEmbed } from '../utils/embeds.js';
 import { logTicketEvent } from '../utils/ticketLogging.js';
 import { ensureTypedServiceError } from '../utils/serviceErrorBoundary.js';
 import { PRIORITY_MAP } from '../utils/helpers.js';
+import { sendTranscriptToLogChannel, generateTranscriptHtml } from '../utils/ticketTranscript.js';
 
 const TICKET_DELETE_DELAY_MS = 3000;
 const TICKET_DELETE_DELAY_SECONDS = Math.floor(TICKET_DELETE_DELAY_MS / 1000);
@@ -235,7 +236,7 @@ export async function createTicket(guild, member, categoryId, reason = 'No reaso
   }
 }
 
-export async function closeTicket(channel, closer, reason = 'No reason provided') {
+export async function closeTicket(channel, closer, reason = 'No reason provided', deleteChannel = false) {
   try {
     const ticketData = await getTicketData(channel.guild.id, channel.id);
     if (!ticketData) {
@@ -395,6 +396,8 @@ export async function closeTicket(channel, closer, reason = 'No reason provided'
     
     await channel.send({ embeds: [closeEmbed], components: [controlRow] });
     
+    await sendTranscriptToLogChannel(channel.client, channel.guild.id, channel, ticketData, closer);
+    
     await logTicketEvent({
       client: channel.client,
       guildId: channel.guild.id,
@@ -408,10 +411,23 @@ export async function closeTicket(channel, closer, reason = 'No reason provided'
         metadata: {
           dmSent: dmOnClose,
           closedAt: ticketData.closedAt,
-          movedToClosedCategory
+          movedToClosedCategory,
+          transcriptSent: true
         }
       }
     });
+    
+    if (deleteChannel) {
+      setTimeout(async () => {
+        try {
+          await channel.delete('Ticket closed and deleted').catch((err) => {
+            logger.error('Failed to delete ticket channel after close:', { channelId: channel.id, error: err.message });
+          });
+        } catch (err) {
+          logger.error('Error deleting ticket channel after close:', { channelId: channel.id, error: err.message });
+        }
+      }, 3000);
+    }
     
     return { success: true, ticketData };
     
