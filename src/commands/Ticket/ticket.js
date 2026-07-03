@@ -49,6 +49,13 @@ export default {
             subcommand
                 .setName('create')
                 .setDescription('Create a new ticket')
+                .addStringOption((option) =>
+                    option
+                        .setName('reason')
+                        .setDescription('Reason for the ticket')
+                        .setRequired(true)
+                        .setMaxLength(1000),
+                )
                 .addUserOption((option) =>
                     option
                         .setName('user')
@@ -60,13 +67,6 @@ export default {
                         .setName('creator')
                         .setDescription('The user who created this ticket (defaults to command user)')
                         .setRequired(false),
-                )
-                .addStringOption((option) =>
-                    option
-                        .setName('reason')
-                        .setDescription('Reason for the ticket')
-                        .setRequired(true)
-                        .setMaxLength(1000),
                 ),
         )
         .addSubcommand((subcommand) =>

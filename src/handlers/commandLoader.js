@@ -293,7 +293,19 @@ async function registerGuildCommands(client, guildId, commands, totalSubcommands
         if (existingCommands.size > 0) {
             logger.info('Attempting to restore previous commands due to registration failure...');
             try {
-                await guild.commands.set(existingCommands.map((cmd) => cmd));
+                const restorePayload = existingCommands.map((cmd) => ({
+                    name: cmd.name,
+                    description: cmd.description,
+                    options: cmd.options,
+                    default_member_permissions: cmd.defaultMemberPermissions != null
+                        ? String(cmd.defaultMemberPermissions)
+                        : undefined,
+                    dm_permission: cmd.dmPermission,
+                    type: cmd.type,
+                    name_localizations: cmd.nameLocalizations,
+                    description_localizations: cmd.descriptionLocalizations,
+                }));
+                await guild.commands.set(restorePayload);
                 logger.info('Successfully restored previous commands');
             } catch (restoreError) {
                 logger.error('Failed to restore previous commands:', restoreError);
