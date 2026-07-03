@@ -101,7 +101,13 @@ export async function createTicket(guild, member, categoryId, reason = 'No reaso
     
     const ticketNumber = await getNextTicketNumber(guild.id);
     
-    let channelName = `ticket-${ticketNumber}`;
+    const rawUsername = member.user?.username || member.user?.globalName || `user-${member.id}`;
+    const sanitizedUsername = rawUsername
+      .toLowerCase()
+      .replace(/[^a-z0-9\-_]/g, '')
+      .substring(0, 20) || `user-${member.id}`;
+    
+    let channelName = `ticket-${sanitizedUsername}`;
     
     if (priority !== 'none') {
       const priorityInfo = PRIORITY_MAP[priority];
@@ -1187,6 +1193,22 @@ export async function addUserToTicket(channel, member) {
       })],
     });
 
+    await logTicketEvent({
+      client: channel.client,
+      guildId: channel.guild.id,
+      event: {
+        type: 'user_added',
+        ticketId: channel.id,
+        ticketNumber: channel.name,
+        userId: member.id,
+        executorId: channel.client.user.id,
+        metadata: {
+          addedUserId: member.id,
+          addedUserTag: member.user.tag,
+        }
+      }
+    });
+
     return { success: true };
   } catch (error) {
     logger.error('Error adding user to ticket:', { channelId: channel.id, memberId: member.id, error: error.message });
@@ -1211,6 +1233,22 @@ export async function removeUserFromTicket(channel, memberOrUser) {
         description: `<@${memberOrUser.id}> has been removed from this ticket.`,
         color: '#e74c3c',
       })],
+    });
+
+    await logTicketEvent({
+      client: channel.client,
+      guildId: channel.guild.id,
+      event: {
+        type: 'user_removed',
+        ticketId: channel.id,
+        ticketNumber: channel.name,
+        userId: memberOrUser.id,
+        executorId: channel.client.user.id,
+        metadata: {
+          removedUserId: memberOrUser.id,
+          removedUserTag: memberOrUser.user?.tag || 'Unknown',
+        }
+      }
     });
 
     return { success: true };

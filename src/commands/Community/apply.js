@@ -1,4 +1,4 @@
-import { getColor } from '../../config/bot.js';
+import { getColor, botConfig } from '../../config/bot.js';
 import { SlashCommandBuilder, ActionRowBuilder, ModalBuilder, TextInputBuilder, TextInputStyle } from 'discord.js';
 import { createEmbed, successEmbed } from '../../utils/embeds.js';
 import { logger } from '../../utils/logger.js';
@@ -71,6 +71,13 @@ export default {
     category: "Community",
 
     execute: withErrorHandling(async (interaction) => {
+        if (!botConfig.features.community) {
+            return await replyUserError(interaction, {
+                type: ErrorTypes.CONFIGURATION,
+                message: 'This command is disabled on this bot instance.',
+            });
+        }
+
         if (!interaction.inGuild()) {
             return await replyUserError(interaction, { type: ErrorTypes.UNKNOWN, message: 'This command can only be used in a server.' });
         }

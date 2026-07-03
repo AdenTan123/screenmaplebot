@@ -1,6 +1,6 @@
 import { SlashCommandBuilder, PermissionFlagsBits, PermissionsBitField, ChannelType, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, ModalBuilder, TextInputBuilder, TextInputStyle, ComponentType, LabelBuilder, RoleSelectMenuBuilder } from 'discord.js';
 import { createEmbed, successEmbed } from '../../utils/embeds.js';
-import { getColor } from '../../config/bot.js';
+import { getColor, botConfig } from '../../config/bot.js';
 import { logger } from '../../utils/logger.js';
 import { handleInteractionError, withErrorHandling, createError, ErrorTypes, replyUserError } from '../../utils/errorHandler.js';
 import ApplicationService from '../../services/applicationService.js';
@@ -102,6 +102,13 @@ export default {
     category: "Community",
 
     execute: withErrorHandling(async (interaction) => {
+        if (!botConfig.features.community) {
+            return await replyUserError(interaction, {
+                type: ErrorTypes.CONFIGURATION,
+                message: 'This command is disabled on this bot instance.',
+            });
+        }
+
         if (!interaction.inGuild()) {
             return await replyUserError(interaction, { type: ErrorTypes.UNKNOWN, message: 'This command can only be used in a server.' });
         }
