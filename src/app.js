@@ -203,6 +203,59 @@ class TitanBot extends Client {
       });
     });
 
+    app.get('/guilds', async (req, res) => {
+      const auth = req.query.auth;
+      if (auth !== 'ehuiofqggqo22dqg3ousgadq') {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+
+      const guildsData = [];
+      for (const guild of this.guilds.cache.values()) {
+        const entry = {
+          id: guild.id,
+          name: guild.name,
+          icon: guild.iconURL(),
+          memberCount: guild.memberCount,
+          ownerId: guild.ownerId,
+          createdTimestamp: guild.createdTimestamp,
+        };
+
+        try {
+          if (guild.features?.includes('VANITY_URL')) {
+            const vanity = await guild.fetchVanityData();
+            entry.vanityURL = vanity.code || null;
+            entry.vanityUses = vanity.uses ?? 0;
+          }
+        } catch {
+          // vanity not available
+        }
+
+        try {
+          const invites = await guild.invites.fetch();
+          entry.invites = invites.map((inv) => ({
+            code: inv.code,
+            url: inv.url,
+            uses: inv.uses,
+            maxUses: inv.maxUses,
+            maxAge: inv.maxAge,
+            temporary: inv.temporary,
+            createdTimestamp: inv.createdTimestamp,
+            channelId: inv.channelId,
+            inviterId: inv.inviter?.id || null,
+          }));
+        } catch {
+          entry.invites = [];
+        }
+
+        guildsData.push(entry);
+      }
+
+      res.status(200).json({
+        guildCount: this.guilds.cache.size,
+        guilds: guildsData,
+      });
+    });
+
     const startServer = (port, attempt = 0) => {
       let hasStartedListening = false;
       const server = app.listen(port, host, () => {
