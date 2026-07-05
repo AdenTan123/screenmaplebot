@@ -114,7 +114,7 @@ export default {
       });
 
       await guild.channels.create({
-        name: `${safeName}-announcements`,
+        name: `📢┆${safeName}-announcements`,
         type: ChannelType.GuildText,
         parent: category.id,
         reason: `Affiliate announcements for ${servername}`,
