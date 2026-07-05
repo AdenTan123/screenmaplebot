@@ -1,19 +1,29 @@
-import { SlashCommandBuilder, PermissionFlagsBits, ChannelType, MessageFlags } from 'discord.js';
-import { successEmbed } from '../../utils/embeds.js';
+import { SlashCommandBuilder, PermissionFlagsBits, ChannelType } from 'discord.js';
+import { successEmbed, createEmbed } from '../../utils/embeds.js';
+import { getColor } from '../../config/bot.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
 import { logger } from '../../utils/logger.js';
 import { handleInteractionError, TitanBotError, ErrorTypes } from '../../utils/errorHandler.js';
 
-const ALLOWED_GUILD_ID = '1523193006285525022';
+const ALLOWED_GUILD = '1523193006285525022';
+const EXTRA_ROLE = '1523208981495943272';
 
-function sanitizeName(name) {
+function parseIds(input) {
+  return input
+    .split(/[\s,;]+/)
+    .filter(Boolean)
+    .map((s) => s.replace(/[<@!>&]/g, ''))
+    .filter((s) => /^\d{17,20}$/.test(s));
+}
+
+function slug(name) {
   return name
     .toLowerCase()
     .replace(/\s+/g, '-')
-    .replace(/[^a-z0-9\u{1F000}-\u{1FFFF}\-_]/gu, '')
+    .replace(/[^a-z0-9\-]/g, '')
     .replace(/-+/g, '-')
     .replace(/^-|-$/g, '')
-    .slice(0, 95);
+    .slice(0, 90);
 }
 
 export default {
@@ -22,119 +32,105 @@ export default {
     .setDescription('Manage affiliate partnerships.')
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
     .setDMPermission(false)
-    .addSubcommand((subcommand) =>
-      subcommand
+    .addSubcommand((sub) =>
+      sub
         .setName('add')
-        .setDescription('Add an affiliate partner.')
-        .addStringOption((option) =>
-          option
-            .setName('servername')
-            .setDescription('The name of the affiliate server')
-            .setRequired(true),
+        .setDescription('Add an affiliate partner for specified guilds only')
+        .addStringOption((o) =>
+          o.setName('servername').setDescription('The affiliate server name').setRequired(true),
         )
-        .addUserOption((option) =>
-          option
-            .setName('user')
-            .setDescription('The affiliate representative')
-            .setRequired(true),
+        .addStringOption((o) =>
+          o.setName('users').setDescription('User mentions or IDs (space/comma separated)').setRequired(true),
         ),
     ),
 
   category: 'moderation',
 
-  async execute(interaction, config, client) {
+  async execute(interaction, _, client) {
     try {
-      if (interaction.guildId !== ALLOWED_GUILD_ID) {
-        throw new TitanBotError(
-          'Guild not allowed',
-          ErrorTypes.PERMISSION,
-          'This command can only be used in the designated server.',
-        );
+      if (interaction.guildId !== ALLOWED_GUILD) {
+        throw new TitanBotError('Command Not Supported In Guild', ErrorTypes.PERMISSION, 'This command is restricted to a specific guild and is not supported in this server.');
       }
 
-      const deferred = await InteractionHelper.safeDefer(interaction, { flags: MessageFlags.Ephemeral });
+      const deferred = await InteractionHelper.safeDefer(interaction);
       if (!deferred) return;
 
       const { options, guild } = interaction;
-      const servername = options.getString('servername').trim();
-      const targetUser = options.getUser('user');
+      const name = options.getString('servername').trim();
+      if (!name) throw new TitanBotError('Empty name', ErrorTypes.USER_INPUT, 'Server name is required.');
 
-      if (!servername) {
-        throw new TitanBotError(
-          'Invalid server name',
-          ErrorTypes.USER_INPUT,
-          'Server name cannot be empty.',
-        );
+      const me = guild.members.me;
+      if (!me.permissions.has(PermissionFlagsBits.ManageRoles)) {
+        throw new TitanBotError('No ManageRoles', ErrorTypes.PERMISSION, 'I need Manage Roles.');
+      }
+      if (!me.permissions.has(PermissionFlagsBits.ManageChannels)) {
+        throw new TitanBotError('No ManageChannels', ErrorTypes.PERMISSION, 'I need Manage Channels.');
       }
 
-      const safeName = sanitizeName(servername);
-      const roleName = `${servername} Affiliates`;
+      const extra = guild.roles.cache.get(EXTRA_ROLE);
+      if (!extra) throw new TitanBotError('Missing role', ErrorTypes.CONFIGURATION, 'Extra role not found.');
 
-      const botMember = guild.members.me;
-      if (!botMember.permissions.has(PermissionFlagsBits.ManageRoles)) {
-        throw new TitanBotError(
-          'Missing ManageRoles',
-          ErrorTypes.PERMISSION,
-          'I need the `Manage Roles` permission to do that.',
-        );
+      const userIds = parseIds(options.getString('users'));
+      if (!userIds.length) throw new TitanBotError('No users', ErrorTypes.USER_INPUT, 'No valid users found.');
+
+      const safe = slug(name);
+      const roleName = `${name} Affiliates`;
+
+      const role = await guild.roles.create({ name: roleName, reason: `Affiliate: ${name}` });
+      await role.setPosition(role.position + 1);
+
+      const ok = [];
+      const errs = [];
+
+      for (const id of userIds) {
+        try {
+          const m = await guild.members.fetch(id);
+          await m.roles.add([role.id, extra.id], `${name} affiliate`);
+          ok.push(m.user.tag);
+        } catch (e) {
+          errs.push(`<@${id}> — ${e.message}`);
+        }
       }
-      if (!botMember.permissions.has(PermissionFlagsBits.ManageChannels)) {
-        throw new TitanBotError(
-          'Missing ManageChannels',
-          ErrorTypes.PERMISSION,
-          'I need the `Manage Channels` permission to do that.',
-        );
+
+      if (!ok.length) {
+        await role.delete('No assignable users');
+        throw new TitanBotError('All failed', ErrorTypes.USER_INPUT, 'Could not assign any user.');
       }
-
-      const role = await guild.roles.create({
-        name: roleName,
-        reason: `Affiliate partner: ${servername}`,
-      });
-
-      const targetMember = await guild.members.fetch(targetUser.id);
-      await targetMember.roles.add(role, `Added as ${servername} affiliate`);
 
       const category = await guild.channels.create({
-        name: servername,
+        name,
         type: ChannelType.GuildCategory,
-        reason: `Affiliate category for ${servername}`,
+        reason: `Affiliate: ${name}`,
         permissionOverwrites: [
+          { id: guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
           {
-            id: guild.roles.everyone.id,
-            deny: [PermissionFlagsBits.ViewChannel],
+            id: role.id,
+            allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory],
           },
+        ],
+      });
+
+      await guild.channels.create({
+        name: `${safe}-announcements`,
+        type: ChannelType.GuildText,
+        parent: category.id,
+        reason: `Affiliate announcements: ${name}`,
+        permissionOverwrites: [
+          { id: role.id, deny: [PermissionFlagsBits.SendMessages] },
+        ],
+      });
+
+      await guild.channels.create({
+        name: `💬┆${safe}-chat`,
+        type: ChannelType.GuildText,
+        parent: category.id,
+        reason: `Affiliate chat: ${name}`,
+        permissionOverwrites: [
           {
             id: role.id,
             allow: [
               PermissionFlagsBits.ViewChannel,
               PermissionFlagsBits.ReadMessageHistory,
-            ],
-          },
-        ],
-      });
-
-      await guild.channels.create({
-        name: `📢┆${safeName}-announcements`,
-        type: ChannelType.GuildText,
-        parent: category.id,
-        reason: `Affiliate announcements for ${servername}`,
-        permissionOverwrites: [
-          {
-            id: role.id,
-            deny: [PermissionFlagsBits.SendMessages],
-          },
-        ],
-      });
-
-      await guild.channels.create({
-        name: `💬┆${safeName}-chat`,
-        type: ChannelType.GuildText,
-        parent: category.id,
-        reason: `Affiliate chat for ${servername}`,
-        permissionOverwrites: [
-          {
-            id: role.id,
-            allow: [
               PermissionFlagsBits.SendMessages,
               PermissionFlagsBits.EmbedLinks,
               PermissionFlagsBits.AttachFiles,
@@ -145,17 +141,20 @@ export default {
         ],
       });
 
+      const desc = [
+        `**Server:** ${name}`,
+        `**Role:** ${role}`,
+        `**Category:** ${category.name}`,
+        `**Assigned (${ok.length}):** ${ok.map((t) => `\`${t}\``).join(', ')}`,
+      ];
+      if (errs.length) desc.push(`**Failed:**\n${errs.join('\n')}`);
+
       await InteractionHelper.safeEditReply(interaction, {
-        embeds: [
-          successEmbed(
-            'Affiliate Added',
-            `**Server:** ${servername}\n**User:** ${targetUser.tag}\n**Role:** ${role}\n**Category:** ${category.name}`,
-          ),
-        ],
+        embeds: [createEmbed({ title: 'Affiliate Added', description: desc.join('\n\n'), color: getColor('success') })],
       });
     } catch (error) {
-      logger.error('Affiliate command error:', error);
-      await handleInteractionError(interaction, error, { subtype: 'affiliate_add_failed' });
+      logger.error('affiliate error:', error);
+      await handleInteractionError(interaction, error, { subtype: 'affiliate_failed' });
     }
   },
 };
