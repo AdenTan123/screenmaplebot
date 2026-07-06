@@ -1,6 +1,6 @@
 import { Events } from 'discord.js';
 import { logger } from '../utils/logger.js';
-// import { getLevelingConfig, getUserLevelData } from '../services/leveling.js';
+import { getLevelingConfig, getUserLevelData } from '../utils/database.js';
 import { addXp } from '../services/xpSystem.js';
 import { checkRateLimit } from '../utils/rateLimiter.js';
 import { parsePrefixCommand } from '../utils/prefixParser.js';
