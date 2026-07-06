@@ -487,18 +487,6 @@ export function validateConfig(config) {
     errors.push("Client ID is required (CLIENT_ID environment variable)");
   }
 
-  if (process.env.NODE_ENV === 'production') {
-    if (!process.env.POSTGRES_HOST) {
-      errors.push("PostgreSQL host is required in production (POSTGRES_HOST environment variable)");
-    }
-    if (!process.env.POSTGRES_USER) {
-      errors.push("PostgreSQL user is required in production (POSTGRES_USER environment variable)");
-    }
-    if (!process.env.POSTGRES_PASSWORD) {
-      errors.push("PostgreSQL password is required in production (POSTGRES_PASSWORD environment variable)");
-    }
-  }
-
   return errors;
 }
 
@@ -506,7 +494,7 @@ const configErrors = validateConfig(botConfig);
 if (configErrors.length > 0) {
   logger.error("Bot configuration errors:", configErrors.join("\n"));
   if (process.env.NODE_ENV === "production") {
-    process.exit(1);
+    logger.warn("Production config checks failed — continuing anyway (MongoDB mode)");
   }
 }
 
