@@ -98,6 +98,7 @@ class TitanBot extends Client {
       this.setupCronJobs();
     } catch (error) {
       logger.error('Failed to start bot:', error);
+      console.error('[FATAL] Failed to start bot:', error);
       process.exit(1);
     }
   }
@@ -150,10 +151,6 @@ class TitanBot extends Client {
     });
 
     app.get('/health', (req, res) => {
-       if (auth !== 'ehuiofqggqo22dqg3ousgadq') {
-        return res.status(401).json({ error: 'Unauthorized' });
-      }
-      
       const isConnected = !!this.db?.initialized;
       const status = {
         status: 'healthy',
@@ -169,9 +166,6 @@ class TitanBot extends Client {
     });
 
     app.get('/ready', (req, res) => {
-       if (auth !== 'ehuiofqggqo22dqg3ousgadq') {
-        return res.status(401).json({ error: 'Unauthorized' });
-      }
 
       const isConnected = !!this.db?.initialized;
       const isReady = this.isReady() && isConnected;
