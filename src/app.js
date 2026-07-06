@@ -75,10 +75,17 @@ class TitanBot extends Client {
       startupLog('Handlers loaded');
       
       startupLog('Logging into Discord...');
-      await this.login(this.config.bot.token);
+      console.log('[DEBUG] Token present:', !!this.config.bot.token, 'length:', this.config.bot.token?.length);
+      const loginPromise = this.login(this.config.bot.token);
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Login timed out after 30 seconds')), 30000)
+      );
+      await Promise.race([loginPromise, timeoutPromise]);
+      console.log('[DEBUG] Discord login resolved');
       startupLog('Discord login successful');
       
       startupLog('Registering slash commands...');
+      console.log('[DEBUG] Registering commands with clientId:', this.config.bot.clientId, 'multiGuild:', this.config.bot.multiGuild);
       await this.registerCommands();
       if (this.config.bot.multiGuild) {
         startupLog('Multi-guild mode enabled — slash commands registered globally');
@@ -98,8 +105,8 @@ class TitanBot extends Client {
       this.setupCronJobs();
     } catch (error) {
       logger.error('Failed to start bot:', error);
-      console.error('[FATAL] Failed to start bot:', error);
-      process.exit(1);
+      console.error('[FATAL] Failed to start bot:', error?.stack || error);
+      setTimeout(() => process.exit(1), 500);
     }
   }
 
