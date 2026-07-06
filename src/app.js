@@ -76,6 +76,16 @@ class TitanBot extends Client {
       
       startupLog('Logging into Discord...');
       console.log('[DEBUG] Token present:', !!this.config.bot.token, 'length:', this.config.bot.token?.length);
+
+      console.log('[DEBUG] Testing Discord API connectivity...');
+      try {
+        const resp = await fetch('https://discord.com/api/v10/gateway');
+        const gate = await resp.json();
+        console.log('[DEBUG] Discord API reachable, gateway:', gate.url);
+      } catch (netErr) {
+        console.error('[DEBUG] Discord API UNREACHABLE:', netErr?.message || netErr);
+      }
+
       const loginPromise = this.login(this.config.bot.token);
       const timeoutPromise = new Promise((_, reject) =>
         setTimeout(() => reject(new Error('Login timed out after 30 seconds')), 30000)
