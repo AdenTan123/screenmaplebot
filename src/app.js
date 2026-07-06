@@ -80,11 +80,15 @@ class TitanBot extends Client {
       console.log('[DEBUG] Testing Discord API connectivity...');
       try {
         const resp = await fetch('https://discord.com/api/v10/gateway');
-        const gate = await resp.json();
-        console.log('[DEBUG] Discord API reachable, gateway:', gate.url);
+        const text = await resp.text();
+        console.log('[DEBUG] Discord API response status:', resp.status, 'type:', typeof text, 'preview:', text.slice(0, 300));
+        try { const gate = JSON.parse(text); console.log('[DEBUG] Gateway:', gate.url); } catch(e) { console.log('[DEBUG] Not JSON - HTML/FW block'); }
       } catch (netErr) {
         console.error('[DEBUG] Discord API UNREACHABLE:', netErr?.message || netErr);
       }
+
+      console.log('[DEBUG] Testing alternative HTTPS...');
+      try { const r2 = await fetch('https://google.com'); console.log('[DEBUG] Google reachable, status:', r2.status); } catch(e2) { console.error('[DEBUG] Google unreachable:', e2?.message); }
 
       const loginPromise = this.login(this.config.bot.token);
       const timeoutPromise = new Promise((_, reject) =>
