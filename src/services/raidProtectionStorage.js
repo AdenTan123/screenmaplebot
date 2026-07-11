@@ -26,7 +26,7 @@ async function writeFileStore(store) {
 async function getValue(client, key, defaultValue) {
   if (client.db?.initialized) {
     const value = await client.db.get(key, undefined);
-    if (value !== undefined) {
+    if (value !== undefined && value !== null) {
       return value;
     }
   }
