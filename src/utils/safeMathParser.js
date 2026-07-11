@@ -61,7 +61,7 @@ function tokenize(expression) {
   while (index < expression.length) {
     const character = expression[index];
 
-    if (character === '' || character === '\t' || character === '\n') {
+    if (/\s/.test(character)) {
       index += 1;
       continue;
     }

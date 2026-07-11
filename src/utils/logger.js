@@ -179,22 +179,26 @@ const logger = createLogger({
       zippedArchive: true,
     }),
   ],
-  exceptionHandlers: [
-    new transports.DailyRotateFile({
-      filename: path.join(__dirname, '../../logs/exceptions-%DATE%.log'),
-      maxSize: '20m',
-      maxFiles: '14d',
-      zippedArchive: true,
-    }),
-  ],
-  rejectionHandlers: [
-    new transports.DailyRotateFile({
-      filename: path.join(__dirname, '../../logs/rejections-%DATE%.log'),
-      maxSize: '20m',
-      maxFiles: '14d',
-      zippedArchive: true,
-    }),
-  ],
+  ...(process.env.NODE_ENV !== 'test'
+    ? {
+        exceptionHandlers: [
+          new transports.DailyRotateFile({
+            filename: path.join(__dirname, '../../logs/exceptions-%DATE%.log'),
+            maxSize: '20m',
+            maxFiles: '14d',
+            zippedArchive: true,
+          }),
+        ],
+        rejectionHandlers: [
+          new transports.DailyRotateFile({
+            filename: path.join(__dirname, '../../logs/rejections-%DATE%.log'),
+            maxSize: '20m',
+            maxFiles: '14d',
+            zippedArchive: true,
+          }),
+        ],
+      }
+    : {}),
 });
 
 if (process.env.NODE_ENV !== 'production') {

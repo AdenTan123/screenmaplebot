@@ -1,66 +1,133 @@
-// database.js — Facade re-exporting split modules for backward compatibility updated for MongoDB
+// database.js — compatibility facade backed by PostgreSQL with in-memory fallback
 
-import { MongoClient } from 'mongodb';
+import { pgDb } from './postgresDatabase.js';
+import { MemoryStorage } from './memoryStorage.js';
 import { logger } from './logger.js';
 import { BotConfig } from '../config/bot.js';
 import { normalizeGuildConfig, validateGuildConfigOrThrow } from './schemas.js';
 import { DEFAULT_GUILD_CONFIG } from './constants.js';
 
-// MongoDB Connection Setup
-const mongoUri = process.env.MONGODB_URI || "none";
-const mongoClient = new MongoClient(mongoUri);
+const memoryDb = new MemoryStorage();
+const memoryCollections = new Map();
 let mongoDb = null;
+
+function getMemoryCollection(name) {
+    if (!memoryCollections.has(name)) {
+        const store = new Map();
+        memoryCollections.set(name, {
+            async findOne(query) {
+                if (query?._id === undefined) return null;
+                return store.has(query._id) ? store.get(query._id) : null;
+            },
+            async updateOne(query, update, options = {}) {
+                const current = store.get(query._id) || { _id: query._id };
+                const next = { ...current, ...(update?.$set || {}) };
+                store.set(query._id, next);
+                return { acknowledged: true, upsertedId: options.upsert ? query._id : undefined };
+            },
+            async deleteOne(query) {
+                store.delete(query._id);
+                return { acknowledged: true, deletedCount: 1 };
+            },
+            find(query = {}) {
+                const ids = [...store.keys()];
+                const regex = query?._id?.$regex ? new RegExp(query._id.$regex) : null;
+                const filtered = ids.filter((id) => (regex ? regex.test(id) : id === query._id));
+                return {
+                    toArray: async () => filtered.map((id) => store.get(id)),
+                };
+            },
+            async insertOne(doc) {
+                store.set(doc._id, doc);
+                return { acknowledged: true, insertedId: doc._id };
+            },
+        });
+    }
+    return memoryCollections.get(name);
+}
 
 // Helper to get collection instance safely
 function getCollection(name) {
-    if (!mongoDb) {
-        throw new Error("Database not initialized. Call initializeDatabase() first.");
+    if (mongoDb) {
+        return mongoDb.collection(name);
     }
-    return mongoDb.collection(name);
+    return getMemoryCollection(name);
 }
 
 export async function initializeDatabase() {
     try {
-        logger.info("Connecting to MongoDB Atlas...");
-        await mongoClient.connect();
-        mongoDb = mongoClient.db("screenmapledb"); // Database name
-        logger.info("Successfully connected to MongoDB!");
-        return true;
+        logger.info('Attempting PostgreSQL database initialization...');
+        const connected = await pgDb.connect();
+
+        if (connected) {
+            db.initialized = true;
+            db.db = pgDb;
+            db.useFallback = false;
+            db.connectionType = 'postgresql';
+            db.degradedModeWarningShown = false;
+            db.degradedReason = null;
+            logger.info('Successfully connected to PostgreSQL');
+            return true;
+        }
     } catch (error) {
-        logger.error("Failed to connect to MongoDB:", error);
-        return false;
+        logger.warn('PostgreSQL initialization failed, enabling memory fallback:', error.message);
     }
+
+    mongoDb = null;
+    db.initialized = true;
+    db.db = memoryDb;
+    db.useFallback = true;
+    db.connectionType = 'memory';
+    db.degradedModeWarningShown = true;
+    db.degradedReason = 'POSTGRES_UNAVAILABLE';
+    logger.warn('Database initialized in degraded memory mode');
+    return true;
 }
 
 export async function getFromDb(key, defaultValue = null) {
     try {
+        if (db.useFallback || !mongoDb) {
+            const value = await memoryDb.get(key, defaultValue);
+            return value === undefined ? defaultValue : value;
+        }
+
         const col = getCollection("kv_store");
         const doc = await col.findOne({ _id: key });
         return doc ? doc.value : defaultValue;
     } catch (error) {
-        logger.error(`Error fetching key ${key} from MongoDB:`, error);
+        logger.error(`Error fetching key ${key} from database:`, error);
         return defaultValue;
     }
 }
 
 export async function setInDb(key, value) {
     try {
+        if (db.useFallback || !mongoDb) {
+            await memoryDb.set(key, value);
+            return true;
+        }
+
         const col = getCollection("kv_store");
         await col.updateOne({ _id: key }, { $set: { value, updatedAt: new Date() } }, { upsert: true });
         return true;
     } catch (error) {
-        logger.error(`Error setting key ${key} in MongoDB:`, error);
+        logger.error(`Error setting key ${key} in database:`, error);
         return false;
     }
 }
 
 export async function deleteFromDb(key) {
     try {
+        if (db.useFallback || !mongoDb) {
+            await memoryDb.delete(key);
+            return true;
+        }
+
         const col = getCollection("kv_store");
         await col.deleteOne({ _id: key });
         return true;
     } catch (error) {
-        logger.error(`Error deleting key ${key} from MongoDB:`, error);
+        logger.error(`Error deleting key ${key} from database:`, error);
         return false;
     }
 }
@@ -68,26 +135,45 @@ export async function deleteFromDb(key) {
 // 💡 ADDED: Prefix-based key scanner for MongoDB mapping
 export async function listFromDb(prefix = '') {
     try {
+        if (db.useFallback || !mongoDb) {
+            return memoryDb.list(prefix);
+        }
+
         const col = getCollection("kv_store");
         const escapedPrefix = prefix.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
         const docs = await col.find({ _id: { $regex: `^${escapedPrefix}` } }).toArray();
         return docs.map(doc => doc._id);
     } catch (error) {
-        logger.error(`Error listing keys with prefix ${prefix} from MongoDB:`, error);
+        logger.error(`Error listing keys with prefix ${prefix} from database:`, error);
         return [];
     }
 }
 
 // Emulating backward compatibility exports for generic wrappers if required elsewhere
 export const db = {
-    get initialized() { return !!mongoDb; },
-    isAvailable: () => !!mongoDb,
+    initialized: false,
+    db: null,
+    useFallback: false,
+    connectionType: 'none',
+    degradedModeWarningShown: false,
+    degradedReason: null,
+    client: null,
+    isAvailable: () => db.initialized && !db.useFallback,
     initialize: initializeDatabase,
     
     get: getFromDb,
     set: setInDb,
     delete: deleteFromDb,
-    list: listFromDb // 💡 FIXED: Mapped the missing collection scanner function
+    list: listFromDb, // 💡 FIXED: Mapped the missing collection scanner function
+    getStatus() {
+        return {
+            initialized: db.initialized,
+            connectionType: db.connectionType,
+            isDegraded: db.useFallback,
+            isAvailable: db.isAvailable(),
+            degradedReason: db.degradedReason,
+        };
+    },
 };
 
 export {
