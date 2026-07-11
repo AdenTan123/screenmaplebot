@@ -6,12 +6,20 @@ import { logger } from '../utils/logger.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
+const ACTIVE_EVENT_FILES = new Set([
+    'ready.js',
+    'interactionCreate.js',
+    'messageCreate.js',
+    'channelDelete.js',
+]);
 
 export default async function loadEvents(client) {
     const eventsPath = join(__dirname, '../events');
-    const eventFiles = await readdir(eventsPath).then(files => files.filter(file => file.endsWith('.js')));
+    const eventFiles = await readdir(eventsPath).then(files =>
+        files.filter(file => file.endsWith('.js') && ACTIVE_EVENT_FILES.has(file))
+    );
 
-    logger.info(`Found ${eventFiles.length} event files to load`);
+    logger.info(`Loading ${eventFiles.length} active raid-protection event files`);
 
     for (const file of eventFiles) {
         const filePath = join(eventsPath, file);

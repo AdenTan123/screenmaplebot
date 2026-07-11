@@ -2,15 +2,10 @@
 import { Client, Collection, GatewayIntentBits } from 'discord.js';
 import { REST } from '@discordjs/rest';
 import express from 'express';
-import cron from 'node-cron';
 
 import config from './config/application.js';
-import { initializeDatabase, db } from './utils/database.js'; // 💎 Imported db directly here
-import { getGuildConfig } from './services/guildConfig.js';
-import { getServerCounters, saveServerCounters, updateCounter } from './services/serverstatsService.js';
+import { initializeDatabase, db } from './utils/database.js';
 import { logger, startupLog, shutdownLog } from './utils/logger.js';
-import { checkBirthdays } from './services/birthdayService.js';
-import { checkGiveaways } from './services/giveawayService.js';
 import { loadCommands, registerCommands as registerSlashCommands } from './handlers/commandLoader.js';
 import pkg from '../package.json' with { type: 'json' };
 import { EXPECTED_SCHEMA_VERSION, EXPECTED_SCHEMA_LABEL } from './config/schemaVersion.js';
@@ -43,12 +38,12 @@ class TitanBot extends Client {
 
   async start() {
     try {
-      startupLog('Starting TitanBot...');
+      startupLog('Starting ScreenMaple Raid Protection Bot...');
       await new Promise(resolve => setTimeout(resolve, 1000));
       
       startupLog('Initializing database...');
       const success = await initializeDatabase();
-      this.db = db; // Assign our imported database helper
+      this.db = db;
 
       if (!success) {
         logger.warn('');
@@ -75,21 +70,6 @@ class TitanBot extends Client {
       startupLog('Handlers loaded');
       
       startupLog('Logging into Discord...');
-      console.log('[DEBUG] Token present:', !!this.config.bot.token, 'length:', this.config.bot.token?.length);
-
-      console.log('[DEBUG] Testing Discord API connectivity...');
-      try {
-        const resp = await fetch('https://discord.com/api/v10/gateway');
-        const text = await resp.text();
-        console.log('[DEBUG] Discord API response status:', resp.status, 'type:', typeof text, 'preview:', text.slice(0, 300));
-        try { const gate = JSON.parse(text); console.log('[DEBUG] Gateway:', gate.url); } catch(e) { console.log('[DEBUG] Not JSON - HTML/FW block'); }
-      } catch (netErr) {
-        console.error('[DEBUG] Discord API UNREACHABLE:', netErr?.message || netErr);
-      }
-
-      console.log('[DEBUG] Testing alternative HTTPS...');
-      try { const r2 = await fetch('https://google.com'); console.log('[DEBUG] Google reachable, status:', r2.status); } catch(e2) { console.error('[DEBUG] Google unreachable:', e2?.message); }
-
       const loginPromise = this.login(this.config.bot.token);
       const timeoutPromise = new Promise((_, reject) =>
         setTimeout(() => reject(new Error('Login timed out after 30 seconds')), 30000)
@@ -220,7 +200,7 @@ class TitanBot extends Client {
 
     app.get('/', (req, res) => {
       res.status(200).json({ 
-        message: 'ScreenMaple API Network',
+        message: 'ScreenMaple Raid Protection Bot',
         version: pkg.version,
         timestamp: new Date().toISOString()
       });
@@ -317,44 +297,7 @@ class TitanBot extends Client {
   }
 
   setupCronJobs() {
-    cron.schedule('0 6 * * *', () => checkBirthdays(this));
-    cron.schedule('* * * * *', () => checkGiveaways(this));
-    cron.schedule('*/15 * * * *', () => this.updateAllCounters());
-  }
-
-  async updateAllCounters() {
-    if (!this.db || !this.db.initialized) {
-      logger.warn('Database not available for counter updates');
-      return;
-    }
-    
-    for (const [guildId, guild] of this.guilds.cache) {
-      try {
-        const counters = await getServerCounters(this, guildId);
-        const validCounters = [];
-        const orphanedCounters = [];
-        
-        for (const counter of counters) {
-          if (counter && counter.type && counter.channelId && counter.enabled !== false) {
-            const channel = guild.channels.cache.get(counter.channelId);
-            if (channel) {
-              validCounters.push(counter);
-              await updateCounter(this, guild, counter);
-            } else {
-              orphanedCounters.push(counter);
-              logger.info(`Removing orphaned counter ${counter.id} (type: ${counter.type}, deleted channel: ${counter.channelId}) from guild ${guildId}`);
-            }
-          }
-        }
-        
-        if (orphanedCounters.length > 0) {
-          await saveServerCounters(this, guildId, validCounters);
-          logger.info(`Cleaned up ${orphanedCounters.length} orphaned counter(s) from guild ${guildId} during scheduled update`);
-        }
-      } catch (error) {
-        logger.error(`Error updating counters for guild ${guildId}:`, error);
-      }
-    }
+    logger.info('No legacy cron jobs are enabled in raid-protection mode');
   }
 
   async loadHandlers() {
@@ -405,10 +348,6 @@ class TitanBot extends Client {
     logger.info(`${'='.repeat(60)}`);
 
     try {
-      logger.info('Stopping cron jobs...');
-      cron.getTasks().forEach(task => task.stop());
-      logger.info('✅ Cron jobs stopped');
-
       if (this.db && this.db.client) {
         logger.info('Closing MongoDB connection...');
         try {

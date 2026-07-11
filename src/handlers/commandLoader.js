@@ -1,4 +1,3 @@
-import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
 import { Collection } from 'discord.js';
@@ -8,6 +7,11 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const MAX_COMMANDS = 100;
 const COMMAND_COUNT_WARN_THRESHOLD = 90;
+const ACTIVE_COMMAND_FILES = [
+    '../commands/RaidProtection/unnuke.js',
+    '../commands/RaidProtection/backup.js',
+    '../commands/RaidProtection/honeypot.js',
+];
 
 function getSubcommandInfo(commandData) {
     const subcommands = [];
@@ -31,31 +35,11 @@ if (subOption.type === 1) {
     return subcommands;
 }
 
-async function getAllFiles(directory, fileList = []) {
-    const files = await fs.readdir(directory, { withFileTypes: true });
-    
-    for (const file of files) {
-        const filePath = path.join(directory, file.name);
-        
-        if (file.isDirectory()) {
-            if (file.name === 'modules') {
-                continue;
-            }
-            await getAllFiles(filePath, fileList);
-        } else if (file.name.endsWith('.js')) {
-            fileList.push(filePath);
-        }
-    }
-    
-    return fileList;
-}
-
 export async function loadCommands(client) {
     client.commands = new Collection();
-    const commandsPath = path.join(__dirname, '../commands');
-    const commandFiles = await getAllFiles(commandsPath);
+    const commandFiles = ACTIVE_COMMAND_FILES.map((file) => path.join(__dirname, file));
     
-    logger.info(`Found ${commandFiles.length} command files to load`);
+    logger.info(`Loading ${commandFiles.length} active raid-protection command files`);
     
     const uniqueCommandNames = new Set();
     
@@ -88,7 +72,7 @@ export async function loadCommands(client) {
             
             const subcommands = getSubcommandInfo(command.data.toJSON());
             
-            logger.info(`Loaded command: ${primaryCommandName} from ${normalizedPath} (category: ${category})`);
+            logger.info(`Loaded active command: ${primaryCommandName} from ${normalizedPath} (category: ${category})`);
             
             if (subcommands.length > 0) {
                 logger.info(`  - Subcommands: ${subcommands.join(', ')}`);
@@ -115,7 +99,7 @@ export async function loadCommands(client) {
         }
     }
     
-    logger.info(`Loaded ${uniqueCommands.size} commands`);
+    logger.info(`Loaded ${uniqueCommands.size} active commands; legacy command files are ignored`);
     return client.commands;
 }
 
@@ -330,6 +314,11 @@ export async function registerCommands(client, options = {}) {
             logger.info('Command registration mode: multi-guild (global commands)');
             await registerGlobalCommands(client, clientId, commands, totalSubcommands);
             return;
+        }
+
+        if (clientId && client.rest) {
+            logger.info('Clearing global slash commands so only guild-scoped raid commands remain active');
+            await client.rest.put(`/applications/${clientId}/commands`, { body: [] });
         }
 
         if (!guildId) {
